@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Chat Background Unified (Android)
 // @namespace    yk.local.ai.chat.background
-// @version      1.0.1
+// @version      1.1.0
 // @description  ChatGPT / Gemini共通。背景、60枠お気に入り、画像ごとの位置保存、ドラッグ・ピンチ、半透明吹き出しを1本で管理します。
 // @match        https://chatgpt.com/*
 // @match        https://gemini.google.com/*
@@ -1403,5 +1403,90 @@
     log(`${SITE}で起動しました。`);
   }
 
-  init().catch(showFatalError);
+  let initPromise = null;
+
+  function cleanupStaleUi() {
+    if (state.observer) {
+      try { state.observer.disconnect(); } catch (_) {}
+      state.observer = null;
+    }
+
+    [
+      `${APP_ID}-style`,
+      `${APP_ID}-layer`,
+      `${APP_ID}-shade`,
+      `${APP_ID}-edit-layer`,
+      `${APP_ID}-edit-hint`,
+      `${APP_ID}-edit-done`,
+      ROOT_ID,
+      `${APP_ID}-panel`,
+      `${APP_ID}-error`
+    ].forEach((id) => document.getElementById(id)?.remove());
+  }
+
+  function start(reason = 'initial') {
+    if (!document.body || !document.documentElement) return Promise.resolve(false);
+
+    if (document.getElementById(ROOT_ID)) {
+      try {
+        applyVisualState();
+        scheduleDomRefresh();
+      } catch (_) {}
+      return Promise.resolve(true);
+    }
+
+    if (initPromise) return initPromise;
+
+    cleanupStaleUi();
+    initPromise = init()
+      .then(() => {
+        log(`再起動確認: ${reason}`);
+        return true;
+      })
+      .catch((error) => {
+        showFatalError(error);
+        return false;
+      })
+      .finally(() => {
+        initPromise = null;
+      });
+
+    return initPromise;
+  }
+
+  function scheduleStart(reason = 'retry') {
+    const run = () => {
+      if (!document.body || !document.documentElement) return false;
+      window.setTimeout(() => start(reason), 0);
+      return true;
+    };
+
+    if (run()) return;
+
+    const onReady = () => {
+      if (!run()) return;
+      document.removeEventListener('readystatechange', onReady);
+      document.removeEventListener('DOMContentLoaded', onReady);
+    };
+
+    document.addEventListener('readystatechange', onReady);
+    document.addEventListener('DOMContentLoaded', onReady);
+    window.setTimeout(onReady, 0);
+  }
+
+  scheduleStart('initial');
+
+  window.addEventListener('pageshow', () => {
+    scheduleStart('pageshow');
+  }, true);
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) scheduleStart('visible');
+  }, true);
+
+  window.setInterval(() => {
+    if (!document.hidden && !document.getElementById(ROOT_ID)) {
+      scheduleStart('watchdog');
+    }
+  }, 1500);
 })();
