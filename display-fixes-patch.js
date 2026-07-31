@@ -9,6 +9,7 @@
   const STYLE_ID = `${APP_ID}-display-fixes-style`;
   const KEY_IMAGE = 'yk-gem-bg-image-v1';
   const DISCLAIMER_CLASS = 'yk-ai-disclaimer-soft';
+  const COMPOSER_SHELL_CLASS = 'yk-ai-composer-shell-clear';
   const DISCLAIMER_TEXT = 'ChatGPT の回答は必ずしも正しいとは限りません';
 
   let scanQueued = false;
@@ -38,12 +39,25 @@
       }
 
       html.yk-ai-bg-on .${DISCLAIMER_CLASS} {
-        background: rgba(14, 14, 16, .20) !important;
-        background-color: rgba(14, 14, 16, .20) !important;
-        border-color: rgba(255, 255, 255, .07) !important;
+        background: rgba(14, 14, 16, .10) !important;
+        background-color: rgba(14, 14, 16, .10) !important;
+        background-image: none !important;
+        border-color: transparent !important;
+        outline: none !important;
         box-shadow: none !important;
-        backdrop-filter: blur(2px) !important;
-        -webkit-backdrop-filter: blur(2px) !important;
+        backdrop-filter: blur(1px) !important;
+        -webkit-backdrop-filter: blur(1px) !important;
+      }
+
+      html.yk-ai-bg-on.yk-ai-site-chatgpt .${COMPOSER_SHELL_CLASS} {
+        background: transparent !important;
+        background-color: transparent !important;
+        background-image: none !important;
+        border-color: transparent !important;
+        outline: none !important;
+        box-shadow: none !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
       }
     `;
     document.documentElement.appendChild(style);
@@ -140,7 +154,6 @@
       const url = URL.createObjectURL(file);
       loadImageDimensions(url)
         .then(({ width, height }) => {
-          // 本体の画像変換処理より前後しても確実に反映されるよう複数回適用します。
           applyCover(width, height);
           window.setTimeout(() => applyCover(width, height), 450);
           window.setTimeout(() => applyCover(width, height), 1200);
@@ -150,13 +163,6 @@
     }, true);
 
     return true;
-  }
-
-  function hasVisibleBackground(element) {
-    const style = getComputedStyle(element);
-    const color = style.backgroundColor || '';
-    const image = style.backgroundImage || 'none';
-    return image !== 'none' || (!color.includes('rgba(0, 0, 0, 0)') && color !== 'transparent');
   }
 
   function softenDisclaimer() {
@@ -170,9 +176,9 @@
 
       let element = node.parentElement;
       let level = 0;
-      while (element && level < 5) {
+      while (element && level < 6) {
         const rect = element.getBoundingClientRect();
-        if (rect.height > 0 && rect.height <= 180 && rect.width >= 120 && hasVisibleBackground(element)) {
+        if (rect.height > 0 && rect.height <= 190 && rect.width >= 120) {
           element.classList.add(DISCLAIMER_CLASS);
         }
         if (element.matches('form') || element.querySelector('textarea,[contenteditable="true"]')) break;
@@ -183,12 +189,56 @@
     }
   }
 
+  function findComposerInput() {
+    if (location.hostname !== 'chatgpt.com' || !document.body) return null;
+
+    const candidates = Array.from(document.querySelectorAll(
+      'textarea, [contenteditable="true"], [data-virtualkeyboard="true"]'
+    )).filter((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        rect.width >= 120 &&
+        rect.height > 0 &&
+        rect.bottom >= innerHeight * 0.58;
+    });
+
+    candidates.sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom);
+    return candidates[0] || null;
+  }
+
+  function clearComposerFooter() {
+    const input = findComposerInput();
+    if (!input) return;
+
+    const inputRect = input.getBoundingClientRect();
+    let element = input.closest('form') || input.parentElement;
+    let level = 0;
+
+    while (element && level < 8 && element !== document.body && element !== document.documentElement) {
+      const rect = element.getBoundingClientRect();
+      const broad = rect.width >= innerWidth * 0.82;
+      const nearBottom = rect.bottom >= innerHeight - 140;
+      const footerSized = rect.height >= inputRect.height + 18 && rect.height <= Math.min(500, innerHeight * 0.48);
+
+      if (broad && nearBottom && footerSized) {
+        element.classList.add(COMPOSER_SHELL_CLASS);
+      }
+
+      if (element.matches('main,[role="main"]')) break;
+      element = element.parentElement;
+      level += 1;
+    }
+  }
+
   function scan() {
     scanQueued = false;
     addStyle();
     ensureFitButton();
     bindAutoFit();
     softenDisclaimer();
+    clearComposerFooter();
   }
 
   function queueScan() {
@@ -210,6 +260,7 @@
   else document.addEventListener('readystatechange', start, { once: true });
 
   window.addEventListener('pageshow', queueScan, true);
+  window.addEventListener('resize', queueScan, { passive: true });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) queueScan();
   }, true);
